@@ -1,0 +1,68 @@
+#pragma kernel CSMain
+
+// Buffers de entrada/salida
+RWStructuredBuffer<float3> ShipPositions;
+RWStructuredBuffer<float3> ShipVelocities;
+StructuredBuffer<float3> PlanetPositions;
+StructuredBuffer<float> PlanetMasses;
+
+// Parámetros uniformes
+int planetCount;
+float deltaTime;
+float areaSize;
+
+// Constante gravitatoria (ajustable)
+static float G = 9.8f;
+
+[numthreads(64,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    // Obtener índice de la nave actual
+    int shipIndex = id.x;
+    
+    // Obtener posición y velocidad actual de la nave
+    float3 currentPosition = ShipPositions[shipIndex];
+    float3 currentVelocity = ShipVelocities[shipIndex];
+    
+    // Calcular fuerza gravitatoria total de todos los planetas
+    float3 totalForce = float3(0, 0, 0);
+    
+    for (int i = 0; i < planetCount; i++)
+    {
+        // Vector desde la nave al planeta
+        float3 toPlanet = PlanetPositions[i] - currentPosition;
+        float distance = length(toPlanet);
+        
+        // Evitar división por cero
+        if (distance < 0.1f) distance = 0.1f;
+        
+        // Fuerza gravitatoria (F = G * m1 * m2 / r^2)
+        // Asumimos masa de nave = 1 para simplificar
+        float forceMagnitude = G * PlanetMasses[i] / (distance * distance);
+        float3 forceDirection = normalize(toPlanet);
+        
+        totalForce += forceDirection * forceMagnitude;
+    }
+    
+    // Integrar velocidad (F = m*a, asumimos m=1)
+    float3 acceleration = totalForce; // m = 1
+    currentVelocity += acceleration * deltaTime;
+    
+    // Integrar posición
+    currentPosition += currentVelocity * deltaTime;
+    
+    // Aplicar condiciones de contorno (rebote simple)
+    if (currentPosition.x < -areaSize || currentPosition.x > areaSize)
+        currentVelocity.x *= -0.5f; // Rebote con pérdida de energía
+    
+    if (currentPosition.y < -areaSize || currentPosition.y > areaSize)
+        currentVelocity.y *= -0.5f;
+    
+    // Limitar posición al área de simulación
+    currentPosition.x = clamp(currentPosition.x, -areaSize, areaSize);
+    currentPosition.y = clamp(currentPosition.y, -areaSize, areaSize);
+    
+    // Escribir resultados de vuelta a los buffers
+    ShipPositions[shipIndex] = currentPosition;
+    ShipVelocities[shipIndex] = currentVelocity;
+}
